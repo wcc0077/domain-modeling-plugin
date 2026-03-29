@@ -2,8 +2,8 @@
   "name": "domain-modeling",
   "version": "1.0.0",
   "description": "Define data models, entity relationships, and core business processes for any project. Covers ER design, state machines, sub-entities, derived fields, and business rules.",
-  "author": "",
-  "repository": "",
+  "author": "wcc0077",
+  "repository": "https://github.com/wcc0077/domain-modeling-plugin",
   "skills": [
     {
       "name": "domain-modeling",
