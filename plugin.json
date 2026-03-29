@@ -1,0 +1,19 @@
+{
+  "name": "domain-modeling",
+  "version": "1.0.0",
+  "description": "Define data models, entity relationships, and core business processes for any project. Covers ER design, state machines, sub-entities, derived fields, and business rules.",
+  "author": "",
+  "repository": "",
+  "skills": [
+    {
+      "name": "domain-modeling",
+      "path": "skills/domain-modeling/SKILL.md",
+      "trigger": "/domain-modeling",
+      "tags": ["modeling", "data-model", "architecture", "process"]
+    }
+  ],
+  "commands": [],
+  "agents": [],
+  "hooks": [],
+  "rules": []
+}
