@@ -29,21 +29,6 @@ Anything extra (sub-entity, derived field, business rule, cross-entity trigger) 
 
 ---
 
-## Design Principles
-
-**Keep it minimal and orthogonal — every concept, field, and annotation must earn its place.**
-
-```
-No redundant concepts.   If it can be expressed as a label on Entity/Relation/Transition/Process, it is not a new concept.
-No redundant fields.     If a field can be derived from others, mark it (derived: ...) and decide stored vs computed.
-No redundant annotations. If an annotation adds no constraint beyond what the model already expresses, remove it.
-No implicit state.        State that lives only in code comments is state that will be violated.
-```
-
-Before adding any concept, field, or annotation — ask: *can this be expressed as a label on an existing concept?* If yes, use a label. If no, justify why before adding it.
-
----
-
 ## Step 1 — Entities
 
 Ask: *"What survives a server restart?"*
@@ -199,4 +184,3 @@ Do each of these in order — stop at the first failure:
 4. **Rollback defined?** Every process with multiple steps has a rollback plan for step N failure.
 5. **No implicit state.** If one entity's transition depends on another entity's state, that's a cross-entity trigger — write it inline.
 6. **Derived fields?** Every aggregate field has `(derived: ..., stored|computed)` — never leave sync strategy implicit.
-7. **No redundant concepts/fields/annotations?** Every model element has a unique reason to exist — nothing that could be a label on another element.
