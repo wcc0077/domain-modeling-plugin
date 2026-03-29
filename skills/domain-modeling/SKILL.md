@@ -1,250 +1,180 @@
 ---
 name: domain-modeling
-description: "Use when clarifying what data a system stores, how entities relate, and what workflows drive state changes. Works for any project regardless of language or framework."
+description: "Use when defining or clarifying the data model and core business processes. Minimalist: 4 concepts, no redundant fields."
 origin: custom
 triggers:
   - /domain-modeling
 tags:
   - modeling
-  - data-model
   - architecture
-  - process
-version: "1.0"
+version: "2.0"
 ---
 
 # domain-modeling
 
-Clarify the data model and core business processes for any project. Use this when starting a new project, rearchitecting an existing system, or adding a new entity type.
+Define a data model and core processes in 4 steps. Only 4 concepts exist — everything else is metadata on them.
 
 ---
 
-## Step 1 — What Data Exists
+## The 4 Concepts
 
-List every noun that represents data the system must persist across restarts.
+```
+Entity     → what you store
+Relation   → how entities connect
+Transition → how state changes
+Process    → ordered steps with rollback
+```
 
-Common examples across projects:
-- User, Account, Organization
-- Project, Workspace, Folder
-- Document, File, Attachment
-- Order, LineItem, Payment
-- Task, Job, Build, Deployment
-
-For each entity, identify:
-- **Identity** — what field uniquely identifies it (usually `id: UUID`)
-- **Core state** — the fields that change over time
-- **Timestamps** — `created_at` always; `updated_at` if mutable
-
-Ask: *"If the server restarts, what must survive?"* — only persistent data belongs here.
+Anything extra (sub-entity, derived field, business rule, cross-entity trigger) is just a **label** on one of these 4 — not a new concept.
 
 ---
 
-## Step 2 — How Entities Connect
+## Step 1 — Entities
 
-For each pair of entities, ask: **does one own, reference, or belong to the other?**
+Ask: *"What survives a server restart?"*
 
+For each entity, write one line:
 ```
-Relationship patterns:
-  1:1    One-to-One     │ User ↔ UserProfile
-  1:N    One-to-Many    │ User → Projects  (one user owns many projects)
-  N:1    Many-to-One    │ Task → Project  (many tasks belong to one project)
-  N:N    Many-to-Many   │ Task ↔ Tag     (needs junction table)
-  Self   Self-Reference │ Task → Task    (parent_id: task has subtasks)
+Entity: <Name> — <what it represents>
 ```
 
-**For each relationship ask:**
-- Can the child exist without the parent? (cascade delete or nullify?)
-- Is the FK nullable? (can a Task exist without a Project?)
-- Do siblings need ordering? (e.g., `depends_on` for task ordering)
+Then for each, note only the non-obvious fields:
+- Fields that are not `id`, `created_at`, `updated_at`
+- Fields that have validation rules (max length, enum values, required)
+
+```
+Entity: User       — account that owns projects
+  + username: unique, max 50
+  + email: unique
+  + password_hash: never expose in API
+
+Entity: Project   — workspace for tasks
+Entity: Task      — unit of work
+```
 
 ---
 
-## Step 3 — State Machines
+## Step 2 — Relations
 
-For each entity with a lifecycle, map the valid transitions.
-
+For each pair of entities, write one line:
 ```
-Example: Order lifecycle
-┌────────┐ new ┌──────────┐ paid ┌────────┐ shipped ┌─────────┐ delivered ┌────────┐
-│  new   │ ──► │ pending  │ ───►│  paid  │ ──────► │ shipped │ ────────► │ done   │
-└────────┘     └──────────┘      └────────┘         └─────────┘           └────────┘
-                     │                   │
-                     │ cancel            │ cancel
-                     │                   │
-                     └─────────┬─────────┘
-                               ▼
-                         ┌──────────┐
-                         │ cancelled│  ← single node, two paths in
-                         └──────────┘
+<Entity> → <Entity>  [1:N / N:1 / N:N / Self]
 ```
 
-For each transition, define:
-- **Trigger** — user action, system event, or timer
-- **Precondition** — what must be true before the transition is allowed
-- **Side effect** — what else changes (audit log, notification, other fields)
+Then annotate with the only 2 questions that matter:
+- **Required?** — can the child exist without the parent? (required FK = sub-entity)
+- **Cascade?** — delete parent, what happens to children?
 
-**Cross-entity state propagation** — ask for each transition:
-> Does this trigger state changes in other entities?
+```
+User → Project    1:N  (required, cascade delete)
+Project → Task    1:N  (required, cascade delete)
+Task → Task      Self  (parent_id, optional — subtask)
+Task ↔ Task     N:N  (depends_on, via JSON array)
+```
 
-Example: payment fails → order is cancelled. Payment and Order are two different entities, but the payment failure causes the order to transition. Document this alongside the transition:
-- `Order.pending → Order.cancelled` triggered by `Payment.failed` (not by a direct user action on Order)
+That's it. No separate section for "sub-entities" — just use `[required]` to mark it.
 
 ---
 
-## Step 4 — Sub-entities and Derived Data
+## Step 3 — Transitions
 
-### Sub-entities
-
-Some entities cannot exist without a parent. These are sub-entities.
-
-| Pattern | Example | FK location |
-|---------|---------|------------|
-| Line item belongs to Order | LineItem without Order has no meaning | LineItem.order_id (required, non-nullable) |
-| Comment belongs to Post | Comment without Post has no meaning | Comment.post_id (required) |
-| Task belongs to Project | Task without Project has no meaning | Task.project_id (required) |
-
-For each sub-entity ask:
-- Can it exist without its parent? (if no: required FK, cascade delete)
-- Does the parent need a count of children? (e.g., `order.line_items.count`) — consider storing as a field or computing on read
-- Are children ordered? (if yes: add `position` / `sort_order` field)
-
-### Denormalized / Derived Fields
-
-Sometimes you store data that could be computed from other tables, for query performance:
-
+For each entity with state, list valid transitions:
 ```
-Example:
-  Order.total_amount = SUM(LineItem.quantity * LineItem.unit_price)  ← could be stored
-  Task.execution_count = COUNT(Execution)                            ← could be stored
-  Project.task_count  = COUNT(Task)                                  ← could be stored
+<Entity>.<state> → <Entity>.<state>
+  Trigger:    [user action / event / timer]
+  Precondition: [what must be true]
+  Side effect:  [what else changes]
 ```
 
-Ask:
-- What aggregate queries does this system run frequently? (dashboard counts, totals)
-- Can you afford to keep the derived field in sync, or should you compute it on read?
-- Is eventual consistency acceptable, or must the derived field always be exact?
-
-### Business Rules / Constraints
-
-Not everything fits in a schema. Some rules are purely logical:
-
 ```
-Examples:
-  - A user can have at most 10 projects
-  - A task can depend on at most 5 other tasks
-  - An order cannot be cancelled after it has been shipped
-  - A username must be unique within an organization (not globally)
+Task.pending → Task.running
+  Trigger: agent picks up task
+  Side effect: emit SSE event
+
+Task.running → Task.done
+  Trigger: review quality >= 0.7
+  Side effect: save output, emit SSE
+
+Task.running → Task.failed
+  Trigger: retry_count >= 3
+  Side effect: emit SSE
+
+Task.any → Task.cancelled
+  Trigger: user cancels task
 ```
 
-Document these as invariant rules alongside the model — they are part of the data model's contract.
+Cross-entity trigger — write it inline:
+```
+Order.pending → Order.cancelled
+  Trigger: Payment.failed (cross-entity)
+```
 
 ---
 
-## Step 5 — Core Business Processes
+## Step 4 — Processes
 
-For each main workflow, define:
-
+For each main workflow, write:
 ```
-Process: [Name]
-Trigger:    [what starts this process]
-Steps:      [numbered, ordered actions]
-Outcome:    [what the system looks like after it succeeds]
-Rollback:   [what happens if step N fails mid-way]
+Process: <Name>
+Trigger:  [what starts it]
+Steps:    [numbered]
+Rollback: [what on step N failure]
 ```
 
 ```
-Example: Process a User Signup
-─────────────────────────────────
-Trigger:  POST /signup with email + password
+Process: Place Order
+Trigger:  user clicks "Place Order"
 Steps:
-  1. Validate email is not already registered
-  2. Hash password with bcrypt/scrypt
-  3. Create user record (status=active)
-  4. Generate JWT token
-  5. Send welcome email (async, non-blocking)
-Outcome:  user created, token returned
-Rollback: delete user record if token generation fails
-```
+  1. Validate cart
+  2. Charge payment
+  3. Create order (status=paid)
+  4. Create fulfillment records
+  5. Send confirmation email (async)
+Rollback: unlock inventory if step 3 fails
 
-```
-Example: Process an Order Checkout
-─────────────────────────────────
-Trigger:  User clicks "Place Order"
+Process: Cancel Order
+Trigger:  user or payment timeout
 Steps:
-  1. Validate cart is not empty
-  2. Lock inventory for each item (prevent oversell)
-  3. Charge payment (Stripe/PayPal)
-  4. If payment fails: unlock inventory, abort
-  5. Create order record (status=paid)
-  6. Create fulfillment records for each line item
-  7. Send order confirmation email (async)
-Outcome:  order placed, inventory decremented, payment captured
-Rollback: unlock inventory if order creation fails
+  1. Validate order.status allows cancellation
+  2. Refund payment (if paid)
+  3. Release inventory
+  4. order.status = cancelled
+Rollback: none (refund is idempotent)
 ```
-
-For each process also note:
-- **Who triggers it**: user / system / scheduled job / another process
-- **What events fire**: webhooks, emails, SSE, internal events
 
 ---
 
-## Step 6 — Model Summary Template
+## Output Template
 
-Fill this in for each project:
+Copy and fill in — nothing else:
 
 ```markdown
-## Data Model
+## Entities
+- <Entity>: <description>
+  + <field>: <validation/notes>
 
-### Entity: <Name>
-| Field      | Type      | Notes                        |
-|------------|-----------|------------------------------|
-| id         | UUID      | PK                           |
-| name/title | String    | max N chars                  |
-| status     | Enum      | A/B/C states                 |
-| ...        | ...       | ...                          |
-| created_at | DateTime  | auto                         |
-| updated_at | DateTime  | auto (if mutable)            |
+## Relations
+<Parent> → <Child> [1:N/N:1/N:N/Self]  [required?] [cascade?]
 
-### Relationships
-- A → B: 1:N (cascade delete / nullify / restrict)
-- B → C: N:1 (required FK / optional FK)
-- C ↔ D: N:N via junction table (or JSON array if SQLite)
+## Transitions
+<Entity>.<from> → <Entity>.<to>
+  Trigger: ...
+  Precondition: ...
+  Side effect: ...
 
-### Sub-entities
-- <SubName> belongs to <Parent>: FK is required, cascade delete
-
-### Denormalized / Derived Fields
-- <field>: computed from <source> (stored for performance / computed on read)
-
-### State Machine: <Entity>
-- A → B: [trigger] ([precondition])
-- B → C: [trigger] ([precondition])
-- any → X: [trigger] ([precondition])
-- Cross-entity: [EntityA.state] triggered by [EntityB.transition]
-
-### Business Rules
-- [Rule 1]: e.g. "max 10 projects per user"
-- [Rule 2]: e.g. "order cannot cancel after shipped"
-
-### Core Processes
-- **Process X**: trigger → N steps → outcome; rollback on step K failure
-- **Process Y**: ...
+## Processes
+Process: <Name>
+Trigger: ...
+Steps: 1. ... 2. ...
+Rollback: ...
 ```
 
----
+## Verification
 
-## Verification Checklist
+Do each of these in order — stop at the first failure:
 
-- [ ] Every entity has exactly one primary key field
-- [ ] Every FK field is indexed
-- [ ] Every entity has `created_at`; mutable entities also have `updated_at`
-- [ ] All state transitions are defined (including error/cancel states)
-- [ ] Every transition has a trigger, precondition, and side effect
-- [ ] Cross-entity state propagation is documented (e.g. payment fails → order cancelled)
-- [ ] Cascade behavior is explicit for every relationship
-- [ ] Sub-entities are identified: can they exist without their parent?
-- [ ] Nullable FKs are intentional — can the child exist without the parent?
-- [ ] Denormalized/derived fields are intentional and their sync strategy is defined
-- [ ] Business rules are documented as explicit invariants
-- [ ] Sensitive fields (passwords, tokens, PII) are never returned in API responses
-- [ ] Concurrent access is considered — do two processes modifying the same entity race?
-- [ ] Soft delete vs hard delete decision is made for each entity
+1. **FK required?** If a child can't exist without its parent, the FK must be non-nullable (no orphan records).
+2. **Cascade explicit?** For every required FK, you have decided: cascade delete, restrict, or nullify.
+3. **State coverage?** For every entity with status, every state is reachable from some trigger — including error and cancel states.
+4. **Rollback defined?** Every process with multiple steps has a rollback plan for step N failure.
+5. **No implicit state.** If one entity's transition depends on another entity's state, that's a cross-entity trigger — write it inline, not in a comment.
