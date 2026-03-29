@@ -7,7 +7,7 @@ triggers:
 tags:
   - modeling
   - architecture
-version: "2.0"
+version: "2.1"
 ---
 
 # domain-modeling
@@ -47,6 +47,7 @@ Entity: User       — account that owns projects
   + username: unique, max 50
   + email: unique
   + password_hash: never expose in API
+  + project_count: int (derived: COUNT Project)  ← stored or computed?
 
 Entity: Project   — workspace for tasks
 Entity: Task      — unit of work
@@ -70,9 +71,13 @@ User → Project    1:N  (required, cascade delete)
 Project → Task    1:N  (required, cascade delete)
 Task → Task      Self  (parent_id, optional — subtask)
 Task ↔ Task     N:N  (depends_on, via JSON array)
+Task ↔ Tag      N:N  (via task_tags junction)
 ```
 
-That's it. No separate section for "sub-entities" — just use `[required]` to mark it.
+Annotations (all optional):
+- `(required)` — sub-entity, FK non-nullable
+- `(cascade)` — delete parent removes children
+- `(business rule: ...)` — e.g. "max 10 per user"
 
 ---
 
@@ -152,14 +157,14 @@ Copy and fill in — nothing else:
 ## Entities
 - <Entity>: <description>
   + <field>: <validation/notes>
+  + <derived_field>: <type> (derived: COUNT|SUM|..., stored|computed)
 
 ## Relations
-<Parent> → <Child> [1:N/N:1/N:N/Self]  [required?] [cascade?]
+<Parent> → <Child> [1:N/N:1/N:N/Self]  [(required)] [(cascade)] [(business rule: ...)]
 
 ## Transitions
 <Entity>.<from> → <Entity>.<to>
   Trigger: ...
-  Precondition: ...
   Side effect: ...
 
 ## Processes
@@ -177,4 +182,5 @@ Do each of these in order — stop at the first failure:
 2. **Cascade explicit?** For every required FK, you have decided: cascade delete, restrict, or nullify.
 3. **State coverage?** For every entity with status, every state is reachable from some trigger — including error and cancel states.
 4. **Rollback defined?** Every process with multiple steps has a rollback plan for step N failure.
-5. **No implicit state.** If one entity's transition depends on another entity's state, that's a cross-entity trigger — write it inline, not in a comment.
+5. **No implicit state.** If one entity's transition depends on another entity's state, that's a cross-entity trigger — write it inline.
+6. **Derived fields?** Every aggregate field has `(derived: ..., stored|computed)` — never leave sync strategy implicit.
